@@ -21,7 +21,7 @@ size_t LzmaUtil::lzmaCompress(const uint8_t* input, uint64_t inputSize, mc::Byte
 
 	Lzma2Enc_SetProps(encoder, &props);
 
-	Lzma2Enc_SetDataSize(&props,inputSize);
+	//Lzma2Enc_SetDataSize(&props,inputSize);
 
 	Byte header[1 + 8];
 	int i;
@@ -64,7 +64,7 @@ size_t LzmaUtil::lzmaDecompress(const uint8_t* input, uint64_t inputSize, mc::By
       outBufferSize |= (header[1 + i] << (i * 8));
     }
 
-	Lzma2Enc_SetDataSize(&props,outBufferSize);
+	//Lzma2Enc_SetDataSize(&props,outBufferSize);
 	UInt64 inProcessed = 0;
 	int isMT = false;
     auto res = Lzma2DecMt_Decode(decoder, prop, &props, &outStream.funcTable, &outBufferSize, 1, &inStream.funcTable,

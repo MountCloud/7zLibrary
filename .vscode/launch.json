@@ -15,6 +15,20 @@
             "environment": [],
             "console": "externalTerminal"
         }
-
+        ,
+        {
+            "name": "(gdb) Launch",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/bin/test",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${fileDirname}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+            ]
+        }
     ]
 }

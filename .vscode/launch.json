@@ -20,7 +20,7 @@
             "name": "(gdb) Launch",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/bin/test",
+            "program": "${workspaceFolder}/test/bin/test",
             "args": [],
             "stopAtEntry": false,
             "cwd": "${fileDirname}",

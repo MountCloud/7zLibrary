@@ -27,7 +27,6 @@
 
 #include "XzEnc.h"
 
-// #define _7ZIP_ST
 
 #define XZ_GET_PAD_SIZE(dataSize) ((4 - ((unsigned)(dataSize) & 3)) & 3)
 

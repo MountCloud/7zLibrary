@@ -5,8 +5,6 @@
 
 #include <string.h>
 
-/* #define _7ZIP_ST */
-
 #include "Lzma2Enc.h"
 
 #ifndef MTCODER__THREADS_MAX

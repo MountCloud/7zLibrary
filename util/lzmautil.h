@@ -16,56 +16,55 @@
 #include <stdint.h>
 #include <string.h>
 #include <memory>
+#include <string>
+#include <vector>
 
 // void* MyAlloc(size_t size);
 
 // void MyFree(void* address);
 
-// static void* SzAlloc(ISzAllocPtr p, size_t size);
+// static void* SzAlloc(ISzAllocPtr p,LZMA_DATASIZE size);
 // static void SzFree(ISzAllocPtr p, void* address);
 
 #define LZMA_STATUS_OPEN_FILE_FAIL -1
+#define LZMA_STATUS_FILE_NOT_EXIST -2
+
+#define LZMA_LEVEL 9
+#define LZMA_THREAD_NUM 4
+
+typedef unsigned long long LZMA_DATASIZE;
 
 
 const ISzAlloc util_g_Alloc = { SzAlloc, SzFree };
 
 typedef struct _CByteSeqOutStream
 {
-	ISeqOutStream funcTable;
+	ISeqOutStream vt;
 	mc::ByteStream* bytesteam;
 } CByteSeqOutStream;
 
 typedef struct _CByteSeqInStream
 {
-	ISeqInStream funcTable;
+	ISeqInStream vt;
 	mc::ByteStream* bytesteam;
 } CByteSeqInStream;
-
 
 class LzmaUtil {
 public:
 
-	static size_t lzmaCompress(const uint8_t* input, uint64_t inputSize, mc::ByteStream* bytesteam);
+	static SRes lzmaCompress(const uint8_t* input, LZMA_DATASIZE inputSize, mc::ByteStream* bytesteam,bool writeheader = true);
 
-	static size_t lzmaDecompress(const uint8_t* input, uint64_t inputSize, mc::ByteStream* bytesteam);
+	static SRes lzmaDecompress(const uint8_t* input, LZMA_DATASIZE inputSize, mc::ByteStream* bytesteam,LZMA_DATASIZE checkOriginalSize = 0,bool readheader = true);
 
-	static size_t EncodeFile(const char* inFile, const char* outFile,size_t* inputFileSize, bool append = false);
+	static SRes EncodeFile(std::string inFile, std::string outFile, LZMA_DATASIZE* inputFileSize,bool writeheader = true, bool append = false);
 
-	static size_t EncodeFileToByte(const char* inFile, mc::ByteStream* bytesteam);
-
-private:
-	static size_t write_size_t;
-	static size_t read_size_t;
+	static SRes EncodeFileToByte(std::string inFile , LZMA_DATASIZE* inputFileSize, mc::ByteStream* bytesteam,bool writeheader = true);
 
 private:
 	static WRes MyOpenWirteFile(CSzFile* p, const char* name, bool append);
-	/**
-	 * 压缩函数封装
-	 */
-	static SRes Encode_lzma(ISeqOutStream* outStream, ISeqInStream* inStream, UInt64 fileSize);
 
-	static size_t MyByteWrite(const ISeqOutStream* pp, const void* buf, size_t size);
-	static SRes MyByteRead(const ISeqInStream *p, void *buf, size_t *size);
+	static size_t MyByteWrite(const ISeqOutStream* pp, const void* buf,size_t size);
+	static SRes MyByteRead(const ISeqInStream *p, void *buf,size_t *size);
 
 
 };

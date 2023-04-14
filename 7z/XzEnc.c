@@ -16,17 +16,16 @@
 #include "SbEnc.c"
 #endif
 
-#ifndef MTCODER__THREADS_MAX
-#define MTCODER__THREADS_MAX 1
-#endif
-
-#ifndef MTCODER__BLOCKS_MAX
-#define MTCODER__BLOCKS_MAX 1
-#endif
-
-
 #include "XzEnc.h"
 
+// #define _7ZIP_ST
+
+#ifndef _7ZIP_ST
+#include "MtCoder.h"
+#else
+#define MTCODER__THREADS_MAX 1
+#define MTCODER__BLOCKS_MAX 1
+#endif
 
 #define XZ_GET_PAD_SIZE(dataSize) ((4 - ((unsigned)(dataSize) & 3)) & 3)
 
@@ -938,6 +937,14 @@ typedef struct
   size_t outBufSize;       /* size of allocated outBufs[i] */
   Byte *outBufs[MTCODER__BLOCKS_MAX];
 
+  #ifndef _7ZIP_ST
+  unsigned checkType;
+  ISeqOutStream *outStream;
+  BoolInt mtCoder_WasConstructed;
+  CMtCoder mtCoder;
+  CXzEncBlockInfo EncBlocks[MTCODER__BLOCKS_MAX];
+  #endif
+
 } CXzEnc;
 
 
@@ -950,6 +957,14 @@ static void XzEnc_Construct(CXzEnc *p)
   for (i = 0; i < MTCODER__THREADS_MAX; i++)
     Lzma2WithFilters_Construct(&p->lzmaf_Items[i]);
 
+  #ifndef _7ZIP_ST
+  p->mtCoder_WasConstructed = False;
+  {
+    for (i = 0; i < MTCODER__BLOCKS_MAX; i++)
+      p->outBufs[i] = NULL;
+    p->outBufSize = 0;
+  }
+  #endif
 }
 
 
@@ -975,6 +990,14 @@ static void XzEnc_Free(CXzEnc *p, ISzAllocPtr alloc)
   for (i = 0; i < MTCODER__THREADS_MAX; i++)
     Lzma2WithFilters_Free(&p->lzmaf_Items[i], alloc);
   
+  #ifndef _7ZIP_ST
+  if (p->mtCoder_WasConstructed)
+  {
+    MtCoder_Destruct(&p->mtCoder);
+    p->mtCoder_WasConstructed = False;
+  }
+  XzEnc_FreeOutBufs(p);
+  #endif
 }
 
 
@@ -1017,6 +1040,91 @@ void XzEnc_SetDataSize(CXzEncHandle pp, UInt64 expectedDataSiize)
 }
 
 
+
+
+#ifndef _7ZIP_ST
+
+static SRes XzEnc_MtCallback_Code(void *pp, unsigned coderIndex, unsigned outBufIndex,
+    const Byte *src, size_t srcSize, int finished)
+{
+  CXzEnc *me = (CXzEnc *)pp;
+  SRes res;
+  CMtProgressThunk progressThunk;
+
+  Byte *dest = me->outBufs[outBufIndex];
+
+  UNUSED_VAR(finished)
+
+  {
+    CXzEncBlockInfo *bInfo = &me->EncBlocks[outBufIndex];
+    bInfo->totalSize = 0;
+    bInfo->unpackSize = 0;
+    bInfo->headerSize = 0;
+  }
+
+  if (!dest)
+  {
+    dest = (Byte *)ISzAlloc_Alloc(me->alloc, me->outBufSize);
+    if (!dest)
+      return SZ_ERROR_MEM;
+    me->outBufs[outBufIndex] = dest;
+  }
+  
+  MtProgressThunk_CreateVTable(&progressThunk);
+  progressThunk.mtProgress = &me->mtCoder.mtProgress;
+  MtProgressThunk_Init(&progressThunk);
+
+  {
+    CXzEncBlockInfo blockSizes;
+    int inStreamFinished;
+
+    res = Xz_CompressBlock(
+        &me->lzmaf_Items[coderIndex],
+        
+        NULL,
+        dest,
+        dest + XZ_BLOCK_HEADER_SIZE_MAX, me->outBufSize - XZ_BLOCK_HEADER_SIZE_MAX,
+
+        NULL,
+        // srcSize, // expectedSize
+        src, srcSize,
+
+        &me->xzProps,
+        &progressThunk.vt,
+        &inStreamFinished,
+        &blockSizes,
+        me->alloc,
+        me->allocBig);
+    
+    if (res == SZ_OK)
+      me->EncBlocks[outBufIndex] = blockSizes;
+
+    return res;
+  }
+}
+
+
+static SRes XzEnc_MtCallback_Write(void *pp, unsigned outBufIndex)
+{
+  CXzEnc *me = (CXzEnc *)pp;
+
+  const CXzEncBlockInfo *bInfo = &me->EncBlocks[outBufIndex];
+  const Byte *data = me->outBufs[outBufIndex];
+
+  RINOK(WriteBytes(me->outStream, data, bInfo->headerSize));
+
+  {
+    UInt64 totalPackFull = bInfo->totalSize + XZ_GET_PAD_SIZE(bInfo->totalSize);
+    RINOK(WriteBytes(me->outStream, data + XZ_BLOCK_HEADER_SIZE_MAX, (size_t)totalPackFull - bInfo->headerSize));
+  }
+
+  return XzEncIndex_AddIndexRecord(&me->xzIndex, bInfo->unpackSize, bInfo->totalSize, me->alloc);
+}
+
+#endif
+
+
+
 SRes XzEnc_Encode(CXzEncHandle pp, ISeqOutStream *outStream, ISeqInStream *inStream, ICompressProgress *progress)
 {
   CXzEnc *p = (CXzEnc *)pp;
@@ -1042,6 +1150,59 @@ SRes XzEnc_Encode(CXzEncHandle pp, ISeqOutStream *outStream, ISeqInStream *inStr
   }
 
   RINOK(Xz_WriteHeader((CXzStreamFlags)props->checkId, outStream));
+
+
+  #ifndef _7ZIP_ST
+  if (props->numBlockThreads_Reduced > 1)
+  {
+    IMtCoderCallback2 vt;
+
+    if (!p->mtCoder_WasConstructed)
+    {
+      p->mtCoder_WasConstructed = True;
+      MtCoder_Construct(&p->mtCoder);
+    }
+
+    vt.Code = XzEnc_MtCallback_Code;
+    vt.Write = XzEnc_MtCallback_Write;
+
+    p->checkType = props->checkId;
+    p->xzProps = *props;
+    
+    p->outStream = outStream;
+
+    p->mtCoder.allocBig = p->allocBig;
+    p->mtCoder.progress = progress;
+    p->mtCoder.inStream = inStream;
+    p->mtCoder.inData = NULL;
+    p->mtCoder.inDataSize = 0;
+    p->mtCoder.mtCallback = &vt;
+    p->mtCoder.mtCallbackObject = p;
+
+    if (   props->blockSize == XZ_PROPS__BLOCK_SIZE__SOLID
+        || props->blockSize == XZ_PROPS__BLOCK_SIZE__AUTO)
+      return SZ_ERROR_FAIL;
+
+    p->mtCoder.blockSize = (size_t)props->blockSize;
+    if (p->mtCoder.blockSize != props->blockSize)
+      return SZ_ERROR_PARAM; /* SZ_ERROR_MEM */
+
+    {
+      size_t destBlockSize = XZ_BLOCK_HEADER_SIZE_MAX + XZ_GET_MAX_BLOCK_PACK_SIZE(p->mtCoder.blockSize);
+      if (destBlockSize < p->mtCoder.blockSize)
+        return SZ_ERROR_PARAM;
+      if (p->outBufSize != destBlockSize)
+        XzEnc_FreeOutBufs(p);
+      p->outBufSize = destBlockSize;
+    }
+
+    p->mtCoder.numThreadsMax = props->numBlockThreads_Max;
+    p->mtCoder.expectedDataSize = p->expectedDataSize;
+    
+    RINOK(MtCoder_Code(&p->mtCoder));
+  }
+  else
+  #endif
   {
     int writeStartSizes;
     CCompressProgress_XzEncOffset progress2;

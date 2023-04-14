@@ -380,6 +380,11 @@ typedef struct
   size_t outStep_ST;
   BoolInt ignoreErrors;
   
+  #ifndef _7ZIP_ST
+  unsigned numThreads;
+  size_t inBufSize_MT;
+  size_t memUseMax;
+  #endif
 } CXzDecMtProps;
 
 void XzDecMtProps_Init(CXzDecMtProps *p);

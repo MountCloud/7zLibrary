@@ -12,7 +12,13 @@ typedef struct
 {
   size_t inBufSize_ST;
   size_t outStep_ST;
-
+  
+  #ifndef _7ZIP_ST
+  unsigned numThreads;
+  size_t inBufSize_MT;
+  size_t outBlockMax;
+  size_t inBlockMax;
+  #endif
 } CLzma2DecMtProps;
 
 /* init to single-thread mode */
